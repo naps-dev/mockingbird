@@ -1,0 +1,82 @@
+apiVersion: kubevirt.io/v1alpha3
+kind: VirtualMachine
+metadata:
+  labels:
+    kubevirt.io/vm: mockingbird-sandbox
+  name: mockingbird-sandbox
+spec:
+  running: true
+  template:
+    metadata:
+      labels:
+        kubevirt.io/vm: mockingbird-sandbox
+    spec:
+      domain:
+        devices:
+          disks:
+            - disk:
+                bus: virtio
+              name: datavolumedisk1
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+              ports:
+                - port: 22
+                - port: 80
+                - port: 8090
+        resources:
+          requests:
+            memory: 16G # from libvirt domain XML, based on imported OVA
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - dataVolume:
+            name: mockingbird-dv
+          name: datavolumedisk1
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+
+              # nothing for now, but cloud-init is tested to work correctly
+  dataVolumeTemplates:
+    - metadata:
+        name: mockingbird-dv
+      spec:
+        pvc:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 256Gi
+        source:
+          registry:
+            url: docker://10.1.25.34/voltron/mockingbird-sandbox:latest
+            # This should pull from the zarf-provided registry
+            pullMethod: node
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mockingbird-sandbox
+spec:
+  ports:
+    - port: 22
+      protocol: TCP
+      targetPort: 22
+      name: ssh
+    - port: 80
+      protocol: TCP
+      targetPort: 80
+      name: http-web
+    - port: 8090
+      protocol: TCP
+      targetPort: 8090
+      name: http-api
+  selector:
+    kubevirt.io/vm: mockingbird-sandbox
+  type: ClusterIP
