@@ -1,0 +1,63 @@
+apiVersion: kubevirt.io/v1alpha3
+kind: VirtualMachine
+metadata:
+  name: {{ include "mockingbird.fullname" . }}
+  labels:
+    {{- include "mockingbird.labels" . | nindent 4 }}
+    kubevirt.io/vm: {{ include "mockingbird.fullname" . }}
+spec:
+  running: true
+  template:
+    metadata:
+      labels:
+        kubevirt.io/vm: {{ include "mockingbird.fullname" . }}
+        {{- include "mockingbird.selectorLabels" . | nindent 8 }}
+    spec:
+      domain:
+        devices:
+          disks:
+            - disk:
+                bus: virtio
+              name: {{ include "mockingbird.fullname" . }}
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+              ports:
+                - port: 22
+                - port: 80
+                - port: 8090
+        resources:
+          # TODO: CPU requirements
+          requests:
+            memory: 16G # from libvirt domain XML, based on imported OVA
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - dataVolume:
+            name: {{ include "mockingbird.fullname" . }}
+          name: {{ include "mockingbird.fullname" . }}
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+
+              # nothing for now, but cloud-init is tested to work correctly
+  dataVolumeTemplates:
+    - metadata:
+        name: {{ include "mockingbird.fullname" . }}
+      spec:
+        pvc:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 256Gi
+        source:
+          registry:
+            url: "docker://{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+            # This should pull from the zarf-provided registry
+            pullMethod: node

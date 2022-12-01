@@ -1,0 +1,8 @@
+image:
+  repository: 765814079306.dkr.ecr.us-east-1.amazonaws.com/mockingbird
+  pullPolicy: Always
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
