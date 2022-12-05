@@ -121,7 +121,7 @@ jobs:
         run: |
           IMAGE_TAG="${{ env.IMAGE_TAG }}"
           IMAGE_TAG=${IMAGE_TAG//\//\_}
-          zarf package create --set TAG="$IMAGE_TAG" --confirm
+          zarf package create --tmpdir "${PWD}/tmp/" --set TAG="$IMAGE_TAG" --confirm
       
       - name: Save Package to S3
         run: |
