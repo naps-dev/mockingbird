@@ -1,0 +1,35 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ include "mockingbird.fullname" . }}
+  labels:
+    {{- include "mockingbird.labels" . | nindent 4 }}
+spec:
+  hosts:
+    - "{{ include "mockingbird.fullname" . }}.{{ .Values.domain }}"
+  gateways:
+    - istio-system/dataplane
+  http:
+    - route:
+        - destination:
+            host: {{ include "mockingbird.fullname" . }}
+            port:
+              number: 80
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ include "mockingbird.fullname" . }}-api
+  labels:
+    {{- include "mockingbird.labels" . | nindent 4 }}
+spec:
+  hosts:
+    - "{{ include "mockingbird.fullname" . }}-api.{{ .Values.domain }}"
+  gateways:
+    - istio-system/dataplane
+  http:
+    - route:
+        - destination:
+            host: {{ include "mockingbird.fullname" . }}
+            port:
+              number: 8090

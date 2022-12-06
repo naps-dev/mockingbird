@@ -34,5 +34,6 @@ spec:
     - name: kubevirt
       namespace: kubevirt
   values:
+    domain: "###ZARF_VAR_DOMAIN###"
     image:
       tag: "###ZARF_VAR_BRANCH###"

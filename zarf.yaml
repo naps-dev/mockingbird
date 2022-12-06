@@ -12,6 +12,9 @@ variables:
   - name: BRANCH
     default: "main"
     prompt: true
+  - name: DOMAIN
+    default: "vp.bigbang.dev"
+    prompt: false
 
 components:
   - name: mockingbird
