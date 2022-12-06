@@ -55,7 +55,7 @@ spec:
             - ReadWriteOnce
           resources:
             requests:
-              storage: 256Gi
+              storage: 265Gi # size is exactly 256Gi, but apparently some additional disk is required 
         source:
           registry:
             url: "docker://{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
