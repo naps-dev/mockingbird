@@ -1,0 +1,129 @@
+name: Convert and Package VM
+run-name: ${{github.actor}} is converting and packaging the Mockingbird Sandbox VM
+on:
+  pull_request:
+    types: [opened, synchronize]
+  push:
+    branches: [main]
+permissions:
+  id-token: write
+  contents: read
+defaults:
+  run:
+    shell: bash
+env:
+  S3_URL: s3://naps-dev-artifacts/Capability-SW/Mockingbird
+  VM: Mockingbird_Sandbox.ova
+  V2V_OUT: Mockingbird_Sandbox
+  QCOW2_FILE: Mockingbird_Sandbox.qcow2
+  S3_PATH: "s3://${{ secrets.AWS_BUCKET }}/${{ github.repository }}/${{ github.head_ref || github.ref_name }}"
+  IMAGE_NAME: 765814079306.dkr.ecr.us-east-1.amazonaws.com/mockingbird
+  IMAGE_TAG: "${{ github.head_ref || github.ref_name }}"
+  ZARF_PACKAGE: zarf-package-mockingbird-amd64.tar.zst
+
+jobs:
+  convert-vm:
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Retrieve Source VM
+        run: |
+          aws s3 cp --no-progress "${{ env.S3_URL }}"/"${{ env.VM }}" .
+
+      - name: Convert VM
+        run: |
+          LIBGUESTFS_BACKEND=direct virt-v2v \
+            -i ova "${{ env.VM }}" \
+            -o local -of qcow2 -os "$PWD" -on "${{ env.V2V_OUT }}"
+
+      # Cannot use --edit, VM doesn't have perl, use sed instead
+      # Weird timezone issues, setting Acquire::Max-FutureTime=86400 lets the time be out of sync by 24hr
+      # Need to delete Ubuntu installer provided cfg files to re-enable cloud-init
+      #  See: https://learn.microsoft.com/en-us/azure/virtual-machines/linux/create-upload-ubuntu
+      # Default to dhcp netplan, with low 00 priority
+      - name: Customize VM
+        run: |
+          mv "${{ env.V2V_OUT }}"-sda "${{ env.QCOW2_FILE }}"
+          LIBGUESTFS_BACKEND=direct virt-customize \
+            -a "${{ env.QCOW2_FILE }}" \
+            --run-command 'apt-get -o Acquire::Max-FutureTime=86400 update' \
+            --run-command 'apt-get install -y cloud-init qemu-guest-agent' \
+            --delete '/etc/cloud/cloud.cfg.d/99-installer.cfg' \
+            --delete '/etc/cloud/cloud.cfg.d/curtin-preserve-sources.cfg' \
+            --delete '/etc/cloud/cloud.cfg.d/subiquity-disable-cloudinit-networking.cfg' \
+            --delete '/etc/netplan/*.yaml' \
+            --delete '/etc/cloud/ds-identify.cfg'  \
+            --run-command 'cloud-init clean --logs --seed'  \
+            --delete '/var/lib/cloud/'  \
+            --run-command 'sed -i '"'"'s/GRUB_CMDLINE_LINUX="\([^"]*\)"/GRUB_CMDLINE_LINUX="\1 console=tty0 console=ttyS0,115200n8"/'"'"' /etc/default/grub'  \
+            --append-line '/etc/default/grub:GRUB_TERMINAL=serial' \
+            --append-line '/etc/default/grub:GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"' \
+            --run-command 'update-grub' \
+            --write '/etc/netplan/00-default-dhcp.yaml:
+          network:
+            version: 2
+            ethernets:
+              enp1s0:
+                dhcp4: true
+          '
+
+      - name: Save VM to S3
+        run: |
+          aws s3 cp --no-progress "${{ env.QCOW2_FILE }}" "${{ env.S3_PATH }}/${{ env.QCOW2_FILE }}"
+      
+  build-image:
+    runs-on: self-hosted
+    needs: convert-vm
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password | docker login --username AWS --password-stdin 765814079306.dkr.ecr.us-east-1.amazonaws.com
+
+      - name: Retrieve Source VM
+        run: |
+          mkdir disk
+          aws s3 cp --no-progress "${{ env.S3_PATH }}/${{ env.QCOW2_FILE }}" disk/
+    
+      - name: Build OCI Container
+        run: |
+          IMAGE_TAG="${{ env.IMAGE_TAG }}"
+          IMAGE_TAG=${IMAGE_TAG//\//\_}
+          docker build -t "${{ env.IMAGE_NAME }}":"$IMAGE_TAG" .
+      
+      - name: Push OCI Container
+        run: |
+          IMAGE_TAG="${{ env.IMAGE_TAG }}"
+          IMAGE_TAG=${IMAGE_TAG//\//\_}
+          docker push "${{ env.IMAGE_NAME }}":"$IMAGE_TAG"
+
+  package-create:
+    runs-on: self-hosted
+    needs: build-image
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Zarf
+        uses: defenseunicorns/setup-zarf@main
+        with:
+          version: v0.22.2
+      
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password | docker login --username AWS --password-stdin 765814079306.dkr.ecr.us-east-1.amazonaws.com
+      
+      - name: Create Zarf Package
+        run: |
+          IMAGE_TAG="${{ env.IMAGE_TAG }}"
+          IMAGE_TAG=${IMAGE_TAG//\//\_}
+          mkdir tmp
+          zarf package create --tmpdir "${PWD}/tmp/" --set TAG="$IMAGE_TAG" --confirm
+      
+      - name: Save Package to S3
+        run: |
+          aws s3 cp --no-progress "${{ env.ZARF_PACKAGE }}" "${{ env.S3_PATH }}/${{ env.ZARF_PACKAGE }}"

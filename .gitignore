@@ -1,5 +1,2 @@
-Mockingbird_Sandbox.ova
-Mockingbird_Sandbox-sda
-Mockingbird_Sandbox-sda.xml
-Dockerfile
-disk/Mockingbird_Sandbox-sda
+*.ova
+*.zst
